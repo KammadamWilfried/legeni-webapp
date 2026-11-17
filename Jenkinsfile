@@ -1,17 +1,22 @@
-// Pipeline de référence du TP 3.5 : tests -> build -> test d'acceptance -> push
+// Pipeline Multibranch : tests -> build -> acceptance -> push
 pipeline {
     agent any
 
     parameters {
-        string(name: 'DOCKERHUB_ID', defaultValue: 'wilfriedkammadam', description: 'Votre identifiant Docker Hub')
-        booleanParam(name: 'PUSH', defaultValue: true, description: "Pousser l'image sur Docker Hub")
+        string(
+            name: 'DOCKERHUB_ID',
+            defaultValue: 'wilfriedkammadam',
+            description: 'Votre identifiant Docker Hub'
+        )
     }
 
     environment {
-        IMAGE          = "${params.DOCKERHUB_ID}/legeni-webapp"
-        VERSION        = "1.0.${env.BUILD_NUMBER}"
+        IMAGE = "${params.DOCKERHUB_ID}/legeni-webapp"
+
+        VERSION = "${env.BRANCH_NAME == 'main' ? '1.0.' + env.BUILD_NUMBER : env.BRANCH_NAME.replaceAll('[^a-zA-Z0-9.-]', '-') + '-' + env.BUILD_NUMBER}"
+
         TEST_CONTAINER = "webapp-ci-${env.BUILD_NUMBER}"
-        CI_NETWORK     = "ci-net-${env.BUILD_NUMBER}"
+        CI_NETWORK = "ci-net-${env.BUILD_NUMBER}"
     }
 
     options {
@@ -21,16 +26,24 @@ pipeline {
     }
 
     stages {
+
         stage('Tests unitaires') {
             steps {
-                // L'étape "test" du Dockerfile lance flake8 + pytest : si un test échoue, le build s'arrête ici
+                echo 'Exécution des tests unitaires...'
                 sh 'docker build --target test -t legeni-webapp:test .'
             }
         }
 
         stage('Build image') {
             steps {
-                sh 'docker build --build-arg APP_VERSION=$VERSION -t $IMAGE:$VERSION -t $IMAGE:latest .'
+                echo "Construction de l'image ${IMAGE}:${VERSION}"
+
+                sh '''
+                    docker build \
+                        --build-arg APP_VERSION=$VERSION \
+                        -t $IMAGE:$VERSION \
+                        .
+                '''
             }
         }
 
@@ -38,25 +51,47 @@ pipeline {
             steps {
                 sh '''
                     docker network create $CI_NETWORK
-                    docker run -d --name $TEST_CONTAINER --network $CI_NETWORK $IMAGE:$VERSION
-                    # On interroge le conteneur depuis un conteneur curl placé sur le même réseau
-                    docker run --rm --network $CI_NETWORK curlimages/curl:8.11.1 \
-                        -sf --retry 10 --retry-connrefused --retry-delay 1 http://$TEST_CONTAINER:5000/health
-                    docker run --rm --network $CI_NETWORK curlimages/curl:8.11.1 \
-                        -sf http://$TEST_CONTAINER:5000/ | grep -q "Version $VERSION"
+
+                    docker run -d \
+                        --name $TEST_CONTAINER \
+                        --network $CI_NETWORK \
+                        $IMAGE:$VERSION
+
+                    docker run --rm \
+                        --network $CI_NETWORK \
+                        curlimages/curl:8.11.1 \
+                        -sf --retry 10 --retry-connrefused --retry-delay 1 \
+                        http://$TEST_CONTAINER:5000/health
+
+                    docker run --rm \
+                        --network $CI_NETWORK \
+                        curlimages/curl:8.11.1 \
+                        -sf http://$TEST_CONTAINER:5000/ \
+                        | grep -q "Version $VERSION"
                 '''
             }
         }
 
         stage('Push Docker Hub') {
-            when { expression { params.PUSH } }
+            when {
+                branch 'main'
+            }
+
             steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub',
-                                                  usernameVariable: 'DH_USER',
-                                                  passwordVariable: 'DH_TOKEN')]) {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub',
+                        usernameVariable: 'DH_USER',
+                        passwordVariable: 'DH_TOKEN'
+                    )
+                ]) {
                     sh '''
-                        echo "$DH_TOKEN" | docker login -u "$DH_USER" --password-stdin
+                        echo "$DH_TOKEN" | docker login \
+                            -u "$DH_USER" \
+                            --password-stdin
+
                         docker push $IMAGE:$VERSION
+                        docker tag $IMAGE:$VERSION $IMAGE:latest
                         docker push $IMAGE:latest
                     '''
                 }
@@ -66,13 +101,18 @@ pipeline {
 
     post {
         always {
-            sh 'docker rm -f $TEST_CONTAINER || true; docker network rm $CI_NETWORK || true'
+            sh '''
+                docker rm -f $TEST_CONTAINER || true
+                docker network rm $CI_NETWORK || true
+            '''
         }
+
         success {
-            echo "Image ${IMAGE}:${VERSION} construite et validée"
+            echo "Image ${IMAGE}:${VERSION} construite et validée."
         }
+
         failure {
-            echo "Échec du pipeline : consultez la console de l'étape en rouge"
+            echo "Échec du pipeline : consultez la console."
         }
     }
 }

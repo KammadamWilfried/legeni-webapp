@@ -7,7 +7,6 @@ EXPECTED=${2:?usage: $0 <projet_compose> <version>}
 NETWORK="${PROJECT}_default"
 
 # Le conteneur curl est placé sur le réseau du projet : il joint le service "web" par son nom.
-[ "$PROJECT" = "legeni-prod" ] && { echo "Panne simulée"; exit 1; }
 curl_net() {
     docker run --rm --network "$NETWORK" curlimages/curl:8.11.1 -sf --max-time 5 "$@"
 }

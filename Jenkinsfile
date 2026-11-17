@@ -63,6 +63,9 @@ pipeline {
         }
 
         stage('Déploiement staging') {
+            when {
+                branch 'main'
+            }
             steps {
                 withCredentials([
                     string(
@@ -83,6 +86,9 @@ pipeline {
         }
 
         stage('Test staging') {
+            when {
+                branch 'main'
+            }
             steps {
                 sh './deploy/smoke-test.sh legeni-staging "$VERSION"'
             }
@@ -105,7 +111,7 @@ pipeline {
                 branch 'main'
             }
             steps {
-                                script {
+                script {
                     env.PREVIOUS_IMAGE = sh(
                         script: '''
                             docker inspect -f '{{.Config.Image}}' legeni-prod-web-1

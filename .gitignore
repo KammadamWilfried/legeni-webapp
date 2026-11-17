@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.Python
+
+# Tests et couverture
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Environnements virtuels
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# Système
+.DS_Store
+Thumbs.db

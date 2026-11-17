@@ -25,14 +25,37 @@ pipeline {
 
         stage('Tests unitaires') {
             steps {
-                echo 'Exécution des tests et du lint...'
-                sh 'docker build --target test -t legeni-webapp:test .'
+                echo 'Exécution des tests, du lint et du contrôle de couverture...'
+
+                sh '''
+                    docker build --target test -t legeni-webapp:test .
+
+                    mkdir -p reports
+
+                    docker run --rm \
+                        -v "$WORKSPACE/reports:/reports" \
+                        legeni-webapp:test \
+                        sh -c "pytest -v \
+                            --cov=app \
+                            --cov-report=term-missing \
+                            --cov-report=xml:/reports/coverage.xml \
+                            --cov-fail-under=80 \
+                            --junitxml=/reports/junit.xml"
+                '''
+
+                junit 'reports/junit.xml'
+
+                archiveArtifacts(
+                    artifacts: 'reports/coverage.xml',
+                    fingerprint: true
+                )
             }
         }
 
         stage('Build image') {
             steps {
                 echo "Construction de ${IMAGE}:${VERSION}"
+
                 sh '''
                     docker build \
                         --build-arg APP_VERSION=$VERSION \
@@ -56,6 +79,7 @@ pipeline {
                     sh '''
                         echo "$DH_TOKEN" | docker login \
                             -u "$DH_USER" --password-stdin
+
                         docker push $IMAGE:$VERSION
                     '''
                 }

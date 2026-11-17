@@ -106,21 +106,19 @@ pipeline {
                 branch 'main'
             }
             steps {
-                script {
-    env.PREVIOUS_IMAGE = sh(
-        script {
-    env.PREVIOUS_IMAGE = sh(
-        script: '''
-            CID=$(IMAGE_REF=none REDIS_PASSWORD=none docker compose -f deploy/docker-compose.deploy.yml -p legeni-prod ps -q web)
-            if [ -n "$CID" ]; then
-                docker inspect -f '{{.Config.Image}}' "$CID"
-            fi
-        ''',
-        returnStdout: true
-    ).trim()
+                                script {
+                    env.PREVIOUS_IMAGE = sh(
+                        script: '''
+                            CID=$(IMAGE_REF=none REDIS_PASSWORD=none docker compose -f deploy/docker-compose.deploy.yml -p legeni-prod ps -q web)
+                            if [ -n "$CID" ]; then
+                                docker inspect -f '{{.Config.Image}}' "$CID"
+                            fi
+                        ''',
+                        returnStdout: true
+                    ).trim()
 
-    echo "Ancienne image de production : ${env.PREVIOUS_IMAGE}"
-}
+                    echo "Ancienne image de production : ${env.PREVIOUS_IMAGE}"
+                }
 
                 withCredentials([
                     string(

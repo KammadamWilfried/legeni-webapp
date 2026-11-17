@@ -25,14 +25,50 @@ pipeline {
 
         stage('Tests unitaires') {
             steps {
-                echo 'Exécution des tests et du lint...'
-                sh 'docker build --target test -t legeni-webapp:test .'
+                echo 'Exécution des tests, du lint et du contrôle de couverture...'
+
+                sh '''
+                    docker build --target test -t legeni-webapp:test .
+
+                    mkdir -p reports
+
+                    TEST_CONTAINER="legeni-tests-${BUILD_TAG}"
+
+                    docker rm -f "$TEST_CONTAINER" 2>/dev/null || true
+
+                    set +e
+                    docker run --name "$TEST_CONTAINER" \
+                        legeni-webapp:test \
+                        sh -c "mkdir -p /reports && pytest -v \
+                            --cov=app \
+                            --cov-report=term-missing \
+                            --cov-report=xml:/reports/coverage.xml \
+                            --cov-fail-under=80 \
+                            --junitxml=/reports/junit.xml"
+
+                    TEST_STATUS=$?
+                    set -e
+
+                    docker cp "$TEST_CONTAINER:/reports/." "$WORKSPACE/reports/"
+
+                    docker rm "$TEST_CONTAINER"
+
+                    exit "$TEST_STATUS"
+                '''
+
+                junit 'reports/junit.xml'
+
+                archiveArtifacts(
+                    artifacts: 'reports/coverage.xml',
+                    fingerprint: true
+                )
             }
         }
 
         stage('Build image') {
             steps {
                 echo "Construction de ${IMAGE}:${VERSION}"
+
                 sh '''
                     docker build \
                         --build-arg APP_VERSION=$VERSION \
@@ -56,6 +92,7 @@ pipeline {
                     sh '''
                         echo "$DH_TOKEN" | docker login \
                             -u "$DH_USER" --password-stdin
+
                         docker push $IMAGE:$VERSION
                     '''
                 }

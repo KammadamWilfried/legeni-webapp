@@ -32,15 +32,28 @@ pipeline {
 
                     mkdir -p reports
 
-                    docker run --rm \
-                        -v "$WORKSPACE/reports:/reports" \
+                    TEST_CONTAINER="legeni-tests-${BUILD_TAG}"
+
+                    docker rm -f "$TEST_CONTAINER" 2>/dev/null || true
+
+                    set +e
+                    docker run --name "$TEST_CONTAINER" \
                         legeni-webapp:test \
-                        sh -c "pytest -v \
+                        sh -c "mkdir -p /reports && pytest -v \
                             --cov=app \
                             --cov-report=term-missing \
                             --cov-report=xml:/reports/coverage.xml \
                             --cov-fail-under=80 \
                             --junitxml=/reports/junit.xml"
+
+                    TEST_STATUS=$?
+                    set -e
+
+                    docker cp "$TEST_CONTAINER:/reports/." "$WORKSPACE/reports/"
+
+                    docker rm "$TEST_CONTAINER"
+
+                    exit "$TEST_STATUS"
                 '''
 
                 junit 'reports/junit.xml'

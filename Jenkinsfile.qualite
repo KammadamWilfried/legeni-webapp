@@ -99,6 +99,19 @@ pipeline {
                 }
             }
         }
+        
+        stage('Détection des secrets') {
+    steps {
+        sh '''
+            docker run --rm \
+                -v "$PWD:/path" \
+                zricethezav/gitleaks:v8.21.2 \
+                detect \
+                --source=/path \
+                --no-banner
+        '''
+    }
+}
 
         stage('Build image') {
             steps {

@@ -1,3 +1,4 @@
+```groovy
 pipeline {
     agent any
 
@@ -120,9 +121,10 @@ pipeline {
                         --severity CRITICAL \
                         --ignore-unfixed \
                         --exit-code 1 \
-                        alpine:3.10
+                        $IMAGE:$VERSION
                 '''
             }
         }
     }
 }
+```

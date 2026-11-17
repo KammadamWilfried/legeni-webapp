@@ -23,7 +23,7 @@ LABEL org.opencontainers.image.title="legeni-webapp" \
       org.opencontainers.image.version="${APP_VERSION}"
 ENV APP_VERSION=${APP_VERSION}
 RUN useradd --create-home --uid 10001 appuser
-COPY app.py .
+ADD app.py .
 USER appuser
 EXPOSE 5000
 HEALTHCHECK --interval=15s --timeout=3s --start-period=5s --retries=3 \

@@ -77,6 +77,23 @@ pipeline {
             }
         }
 
+        stage('Analyse de sécurité Trivy') {
+            steps {
+                echo "Analyse de sécurité de ${IMAGE}:${VERSION}"
+
+                sh '''
+                    docker run --rm \
+                        -v /var/run/docker.sock:/var/run/docker.sock \
+                        aquasec/trivy:latest image \
+                        --scanners vuln \
+                        --severity CRITICAL \
+                        --ignore-unfixed \
+                        --exit-code 1 \
+                        $IMAGE:$VERSION
+                '''
+            }
+        }
+
         stage('Push Docker Hub') {
             when {
                 branch 'main'

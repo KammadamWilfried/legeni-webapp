@@ -107,11 +107,18 @@ pipeline {
             }
             steps {
                 script {
-                    env.PREVIOUS_IMAGE = sh(
-                        script: "docker inspect -f '{{.Config.Image}}' legeni-prod-web-1 2>/dev/null || true",
-                        returnStdout: true
-                    ).trim()
-                }
+    env.PREVIOUS_IMAGE = sh(
+        script: '''
+            CID=$(docker compose -f deploy/docker-compose.deploy.yml -p legeni-prod ps -q web)
+            if [ -n "$CID" ]; then
+                docker inspect -f '{{.Config.Image}}' "$CID"
+            fi
+        ''',
+        returnStdout: true
+    ).trim()
+
+    echo "Ancienne image de production : ${env.PREVIOUS_IMAGE}"
+}
 
                 withCredentials([
                     string(

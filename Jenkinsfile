@@ -1,4 +1,3 @@
-// Pipeline Multibranch : tests -> build -> acceptance -> push
 pipeline {
     agent any
 
@@ -6,22 +5,20 @@ pipeline {
         string(
             name: 'DOCKERHUB_ID',
             defaultValue: 'wilfriedkammadam',
-            description: 'Votre identifiant Docker Hub'
+            description: 'Identifiant Docker Hub'
         )
     }
 
     environment {
         IMAGE = "${params.DOCKERHUB_ID}/legeni-webapp"
-
         VERSION = "${env.BRANCH_NAME == 'main' ? '1.0.' + env.BUILD_NUMBER : env.BRANCH_NAME.replaceAll('[^a-zA-Z0-9.-]', '-') + '-' + env.BUILD_NUMBER}"
-
-        TEST_CONTAINER = "webapp-ci-${env.BUILD_NUMBER}"
-        CI_NETWORK = "ci-net-${env.BUILD_NUMBER}"
+        COMPOSE = "docker compose -f deploy/docker-compose.deploy.yml"
+        PREVIOUS_IMAGE = ""
     }
 
     options {
         timestamps()
-        timeout(time: 20, unit: 'MINUTES')
+        timeout(time: 30, unit: 'MINUTES')
         buildDiscarder(logRotator(numToKeepStr: '10'))
     }
 
@@ -29,45 +26,18 @@ pipeline {
 
         stage('Tests unitaires') {
             steps {
-                echo 'Exécution des tests unitaires...'
+                echo 'Exécution des tests et du lint...'
                 sh 'docker build --target test -t legeni-webapp:test .'
             }
         }
 
         stage('Build image') {
             steps {
-                echo "Construction de l'image ${IMAGE}:${VERSION}"
-
+                echo "Construction de ${IMAGE}:${VERSION}"
                 sh '''
                     docker build \
                         --build-arg APP_VERSION=$VERSION \
-                        -t $IMAGE:$VERSION \
-                        .
-                '''
-            }
-        }
-
-        stage("Test d'acceptance") {
-            steps {
-                sh '''
-                    docker network create $CI_NETWORK
-
-                    docker run -d \
-                        --name $TEST_CONTAINER \
-                        --network $CI_NETWORK \
-                        $IMAGE:$VERSION
-
-                    docker run --rm \
-                        --network $CI_NETWORK \
-                        curlimages/curl:8.11.1 \
-                        -sf --retry 10 --retry-connrefused --retry-delay 1 \
-                        http://$TEST_CONTAINER:5000/health
-
-                    docker run --rm \
-                        --network $CI_NETWORK \
-                        curlimages/curl:8.11.1 \
-                        -sf http://$TEST_CONTAINER:5000/ \
-                        | grep -q "Version $VERSION"
+                        -t $IMAGE:$VERSION .
                 '''
             }
         }
@@ -76,7 +46,6 @@ pipeline {
             when {
                 branch 'main'
             }
-
             steps {
                 withCredentials([
                     usernamePassword(
@@ -87,32 +56,125 @@ pipeline {
                 ]) {
                     sh '''
                         echo "$DH_TOKEN" | docker login \
-                            -u "$DH_USER" \
-                            --password-stdin
-
+                            -u "$DH_USER" --password-stdin
                         docker push $IMAGE:$VERSION
-                        docker tag $IMAGE:$VERSION $IMAGE:latest
-                        docker push $IMAGE:latest
                     '''
+                }
+            }
+        }
+
+        stage('Déploiement staging') {
+            steps {
+                withCredentials([
+                    string(
+                        credentialsId: 'redis-password-staging',
+                        variable: 'REDIS_PASSWORD'
+                    )
+                ]) {
+                    sh '''
+                        IMAGE_REF=$IMAGE:$VERSION \
+                        APP_ENV=staging \
+                        APP_COLOR='#bf8700' \
+                        PORT=8081 \
+                        REDIS_PASSWORD="$REDIS_PASSWORD" \
+                        $COMPOSE -p legeni-staging up -d --wait
+                    '''
+                }
+            }
+        }
+
+        stage('Test staging') {
+            steps {
+                sh './deploy/smoke-test.sh legeni-staging "$VERSION"'
+            }
+        }
+
+        stage('Validation humaine') {
+            when {
+                branch 'main'
+            }
+            steps {
+                timeout(time: 15, unit: 'MINUTES') {
+                    input message: "Staging validé. Autoriser le déploiement de ${VERSION} en production ?",
+                          ok: 'Déployer en production'
+                }
+            }
+        }
+
+        stage('Déploiement et validation production') {
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    env.PREVIOUS_IMAGE = sh(
+                        script: "docker inspect -f '{{.Config.Image}}' legeni-prod-web-1 2>/dev/null || true",
+                        returnStdout: true
+                    ).trim()
+                }
+
+                withCredentials([
+                    string(
+                        credentialsId: 'redis-password-prod',
+                        variable: 'REDIS_PASSWORD'
+                    )
+                ]) {
+                    sh '''
+                        echo "Déploiement de la version $VERSION en production"
+
+                        IMAGE_REF=$IMAGE:$VERSION \
+                        APP_ENV=prod \
+                        APP_COLOR='#1a7f37' \
+                        PORT=8082 \
+                        REDIS_PASSWORD="$REDIS_PASSWORD" \
+                        $COMPOSE -p legeni-prod up -d --wait
+                    '''
+
+                    script {
+                        int resultat = sh(
+                            script: './deploy/smoke-test.sh legeni-prod "$VERSION"',
+                            returnStatus: true
+                        )
+
+                        if (resultat != 0) {
+                            echo 'Smoke test KO : début du rollback.'
+
+                            if (env.PREVIOUS_IMAGE?.trim()) {
+                                sh '''
+                                    IMAGE_REF="$PREVIOUS_IMAGE" \
+                                    APP_ENV=prod \
+                                    APP_COLOR='#1a7f37' \
+                                    PORT=8082 \
+                                    REDIS_PASSWORD="$REDIS_PASSWORD" \
+                                    $COMPOSE -p legeni-prod up -d --wait
+                                '''
+
+                                echo "Retour à l'image ${env.PREVIOUS_IMAGE}"
+                            } else {
+                                echo 'Aucune ancienne image disponible pour le rollback.'
+                            }
+
+                            error('Échec du smoke test production.')
+                        }
+
+                        echo 'Production validée avec succès !'
+                    }
                 }
             }
         }
     }
 
     post {
-        always {
-            sh '''
-                docker rm -f $TEST_CONTAINER || true
-                docker network rm $CI_NETWORK || true
-            '''
-        }
-
         success {
-            echo "Image ${IMAGE}:${VERSION} construite et validée."
+            echo "Pipeline réussi : ${IMAGE}:${VERSION}"
         }
 
         failure {
-            echo "Échec du pipeline : consultez la console."
+            echo 'Échec du pipeline. Consultez la console Jenkins.'
+        }
+
+        always {
+            sh 'docker image prune -f || true'
         }
     }
 }

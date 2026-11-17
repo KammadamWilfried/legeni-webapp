@@ -13,7 +13,6 @@ pipeline {
         IMAGE = "${params.DOCKERHUB_ID}/legeni-webapp"
         VERSION = "${env.BRANCH_NAME == 'main' ? '1.0.' + env.BUILD_NUMBER : env.BRANCH_NAME.replaceAll('[^a-zA-Z0-9.-]', '-') + '-' + env.BUILD_NUMBER}"
         COMPOSE = "docker compose -f deploy/docker-compose.deploy.yml"
-        PREVIOUS_IMAGE = ""
     }
 
     options {

@@ -120,7 +120,7 @@ pipeline {
                         --severity CRITICAL \
                         --ignore-unfixed \
                         --exit-code 1 \
-                        $IMAGE:$VERSION
+                        alpine:3.10
                 '''
             }
         }

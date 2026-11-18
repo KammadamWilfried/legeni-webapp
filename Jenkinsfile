@@ -11,7 +11,6 @@ pipeline {
 
     environment {
         IMAGE = "${params.DOCKERHUB_ID}/legeni-webapp"
-        VERSION = "${env.BRANCH_NAME == 'main' ? '1.0.' + env.BUILD_NUMBER : env.BRANCH_NAME.replaceAll('[^a-zA-Z0-9.-]', '-') + '-' + env.BUILD_NUMBER}"
         COMPOSE = "docker compose -f deploy/docker-compose.deploy.yml"
     }
 
@@ -23,6 +22,21 @@ pipeline {
 
     stages {
 
+                stage('Définir la version') {
+            steps {
+                script {
+                    def baseVersion = readFile('VERSION').trim()
+
+                    if (!(baseVersion ==~ /^[0-9]+\.[0-9]+\.[0-9]+$/)) {
+                        error("Format de version invalide : ${baseVersion}")
+                    }
+
+                    env.VERSION = "${baseVersion}-${env.BUILD_NUMBER}"
+
+                    echo "Version à construire : ${env.VERSION}"
+                }
+            }
+        }
         stage('Tests unitaires') {
             steps {
                 echo 'Exécution des tests, du lint et du contrôle de couverture...'

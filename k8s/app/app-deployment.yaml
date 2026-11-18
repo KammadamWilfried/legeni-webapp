@@ -1,0 +1,149 @@
+# DEPLOIEMENT STAGING
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: legeni-webapp
+  namespace: staging
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: legeni-webapp
+  template:
+    metadata:
+      labels:
+        app: legeni-webapp
+    spec:
+      containers:
+        - name: webapp
+          image: wilfriedkammadam/legeni-webapp:1.0.16-19
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5000
+          env:
+            - name: APP_VERSION
+              value: "1.0.16-19"
+            - name: APP_ENV
+              value: "staging"
+            - name: REDIS_HOST
+              value: "redis"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: REDIS_PASSWORD
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+# SERVICE STAGING
+apiVersion: v1
+kind: Service
+metadata:
+  name: legeni-webapp
+  namespace: staging
+spec:
+  selector:
+    app: legeni-webapp
+  ports:
+    - port: 5000
+      targetPort: 5000
+  type: ClusterIP
+---
+# DEPLOIEMENT PRODUCTION
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: legeni-webapp
+  namespace: prod
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: legeni-webapp
+  template:
+    metadata:
+      labels:
+        app: legeni-webapp
+    spec:
+      containers:
+        - name: webapp
+          image: wilfriedkammadam/legeni-webapp:1.0.16-19
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5000
+          env:
+            - name: APP_VERSION
+              value: "1.0.16-19"
+            - name: APP_ENV
+              value: "prod"
+            - name: REDIS_HOST
+              value: "redis"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: REDIS_PASSWORD
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+# SERVICE PRODUCTION
+apiVersion: v1
+kind: Service
+metadata:
+  name: legeni-webapp
+  namespace: prod
+spec:
+  selector:
+    app: legeni-webapp
+  ports:
+    - port: 5000
+      targetPort: 5000
+  type: ClusterIP

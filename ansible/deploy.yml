@@ -1,0 +1,76 @@
+---
+- name: Déployer Legeni WebApp dans Kubernetes
+  hosts: local
+  gather_facts: false
+
+  vars:
+    target_namespace: staging
+    image_tag: "1.0.16-19"
+    image_name: "wilfriedkammadam/legeni-webapp"
+
+  tasks:
+    - name: Vérifier l'environnement cible
+      ansible.builtin.assert:
+        that:
+          - target_namespace in ['staging', 'prod']
+        fail_msg: "L'environnement doit être staging ou prod."
+
+    - name: Déployer et vérifier l'application
+      block:
+
+        - name: Créer les ressources Kubernetes
+          kubernetes.core.k8s:
+            state: present
+            definition: "{{ item }}"
+          loop: "{{ lookup('file', '../k8s/app/app-deployment.yaml') | from_yaml_all | selectattr('metadata.namespace', 'equalto', target_namespace) | list }}"
+
+        - name: Définir la version de l'image Docker
+          ansible.builtin.command:
+            cmd: "kubectl set image deployment/legeni-webapp webapp={{ image_name }}:{{ image_tag }} -n {{ target_namespace }}"
+          changed_when: true
+
+        - name: Attendre la fin du déploiement
+          ansible.builtin.command:
+            cmd: "kubectl rollout status deployment/legeni-webapp -n {{ target_namespace }} --timeout=180s"
+          changed_when: false
+
+        - name: Récupérer le nom d'un Pod
+          ansible.builtin.command:
+            cmd: "kubectl get pods -n {{ target_namespace }} -l app=legeni-webapp -o jsonpath={.items[0].metadata.name}"
+          register: app_pod
+          changed_when: false
+
+        - name: Tester l'application
+          ansible.builtin.command:
+            cmd: >-
+              kubectl exec -n {{ target_namespace }} {{ app_pod.stdout }}
+              -- python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:5000/api/info').read().decode())"
+          register: smoke_test
+          changed_when: false
+
+        - name: Vérifier la version déployée
+          ansible.builtin.assert:
+            that:
+              - image_tag in smoke_test.stdout
+            success_msg: "Déploiement réussi : {{ image_tag }}"
+            fail_msg: "La version déployée ne correspond pas."
+
+      rescue:
+
+        - name: Afficher l'échec du déploiement
+          ansible.builtin.debug:
+            msg: "Échec du déploiement. Retour à la version précédente."
+
+        - name: Effectuer le rollback
+          ansible.builtin.command:
+            cmd: "kubectl rollout undo deployment/legeni-webapp -n {{ target_namespace }}"
+          changed_when: true
+
+        - name: Attendre la fin du rollback
+          ansible.builtin.command:
+            cmd: "kubectl rollout status deployment/legeni-webapp -n {{ target_namespace }} --timeout=180s"
+          changed_when: false
+
+        - name: Signaler l'échec
+          ansible.builtin.fail:
+            msg: "Le déploiement a échoué. Le rollback a été déclenché."

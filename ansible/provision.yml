@@ -1,0 +1,10 @@
+---
+- name: Provisionner le serveur Legeni
+  hosts: local
+  become: true
+
+  roles:
+    - common
+    - docker
+    - jenkins
+    - minikube

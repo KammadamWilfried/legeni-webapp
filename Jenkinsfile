@@ -135,21 +135,14 @@ pipeline {
                 branch 'main'
             }
             steps {
-                withCredentials([
-                    string(
-                        credentialsId: 'redis-password-staging',
-                        variable: 'REDIS_PASSWORD'
-                    )
-                ]) {
-                    sh '''
-                        IMAGE_REF=$IMAGE:$VERSION \
-                        APP_ENV=staging \
-                        APP_COLOR='#bf8700' \
-                        PORT=8081 \
-                        REDIS_PASSWORD="$REDIS_PASSWORD" \
-                        $COMPOSE -p legeni-staging up -d --wait
-                    '''
-                }
+                echo "Déploiement Kubernetes staging : ${VERSION}"
+
+                sh """
+                    ansible-playbook ansible/deploy.yml \
+                        -e target_namespace=staging \
+                        -e image_tag=${VERSION} \
+                        -e image_name=${IMAGE}
+                """
             }
         }
 
@@ -158,7 +151,12 @@ pipeline {
                 branch 'main'
             }
             steps {
-                sh './deploy/smoke-test.sh legeni-staging "$VERSION"'
+                sh """
+                    kubectl rollout status deployment/legeni-webapp \
+                        -n staging --timeout=180s
+
+                    kubectl get deployments -n staging
+                """
             }
         }
 
@@ -174,69 +172,33 @@ pipeline {
             }
         }
 
-        stage('Déploiement et validation production') {
+        stage('Déploiement production') {
             when {
                 branch 'main'
             }
             steps {
-                script {
-                    env.PREVIOUS_IMAGE = sh(
-                        script: '''
-                            docker inspect -f '{{.Config.Image}}' legeni-prod-web-1
-                        ''',
-                        returnStdout: true
-                    ).trim()
+                echo "Déploiement Kubernetes production : ${VERSION}"
 
-                    echo "Ancienne image de production : ${env.PREVIOUS_IMAGE}"
-                }
+                sh """
+                    ansible-playbook ansible/deploy.yml \\
+                        -e target_namespace=prod \\
+                        -e image_tag=${VERSION} \\
+                        -e image_name=${IMAGE}
+                """
+            }
+        }
 
-                withCredentials([
-                    string(
-                        credentialsId: 'redis-password-prod',
-                        variable: 'REDIS_PASSWORD'
-                    )
-                ]) {
-                    sh '''
-                        echo "Déploiement de la version $VERSION en production"
+        stage('Vérification production') {
+            when {
+                branch 'main'
+            }
+            steps {
+                sh """
+                    kubectl rollout status deployment/legeni-webapp \\
+                        -n prod --timeout=180s
 
-                        IMAGE_REF=$IMAGE:$VERSION \
-                        APP_ENV=prod \
-                        APP_COLOR='#1a7f37' \
-                        PORT=8082 \
-                        REDIS_PASSWORD="$REDIS_PASSWORD" \
-                        $COMPOSE -p legeni-prod up -d --wait
-                    '''
-
-                    script {
-                        int resultat = sh(
-                            script: './deploy/smoke-test.sh legeni-prod "$VERSION"',
-                            returnStatus: true
-                        )
-
-                        if (resultat != 0) {
-                            echo 'Smoke test KO : début du rollback.'
-
-                            if (env.PREVIOUS_IMAGE?.trim()) {
-                                sh '''
-                                    IMAGE_REF="$PREVIOUS_IMAGE" \
-                                    APP_ENV=prod \
-                                    APP_COLOR='#1a7f37' \
-                                    PORT=8082 \
-                                    REDIS_PASSWORD="$REDIS_PASSWORD" \
-                                    $COMPOSE -p legeni-prod up -d --wait
-                                '''
-
-                                echo "Retour à l'image ${env.PREVIOUS_IMAGE}"
-                            } else {
-                                echo 'Aucune ancienne image disponible pour le rollback.'
-                            }
-
-                            error('Échec du smoke test production.')
-                        }
-
-                        echo 'Production validée avec succès !'
-                    }
-                }
+                    kubectl get deployments -n prod
+                """
             }
         }
     }

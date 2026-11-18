@@ -1,0 +1,23 @@
+---
+- name: Installer Java pour Jenkins
+  ansible.builtin.apt:
+    name: fontconfig
+    state: present
+    update_cache: true
+  become: true
+
+- name: Installer Java 21
+  ansible.builtin.apt:
+    name: openjdk-21-jre
+    state: present
+  become: true
+
+- name: Vérifier l'installation de Java
+  ansible.builtin.command:
+    cmd: java -version
+  register: java_version
+  changed_when: false
+
+- name: Afficher la version de Java
+  ansible.builtin.debug:
+    var: java_version.stderr_lines

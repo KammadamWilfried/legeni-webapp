@@ -1,0 +1,30 @@
+---
+- name: Récupérer la dernière version stable de Kubernetes
+  ansible.builtin.uri:
+    url: https://dl.k8s.io/release/stable.txt
+    return_content: true
+  register: kubectl_version
+
+- name: Télécharger kubectl
+  ansible.builtin.get_url:
+    url: "https://dl.k8s.io/release/{{ kubectl_version.content | trim }}/bin/linux/amd64/kubectl"
+    dest: /usr/local/bin/kubectl
+    mode: '0755'
+  become: true
+
+- name: Télécharger Minikube
+  ansible.builtin.get_url:
+    url: https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+    dest: /usr/local/bin/minikube
+    mode: '0755'
+  become: true
+
+- name: Vérifier kubectl
+  ansible.builtin.command:
+    cmd: kubectl version --client
+  changed_when: false
+
+- name: Vérifier Minikube
+  ansible.builtin.command:
+    cmd: minikube version
+  changed_when: false
